@@ -51,15 +51,13 @@ FFMPEG_EXECUTABLE = _get_ffmpeg_path()
 
 if FFMPEG_EXECUTABLE:
     AudioSegment.converter = FFMPEG_EXECUTABLE
-    # these attributes are used by some pydub internals; safe to set all
+    # pydub looks at these attributes too – safe to set them all
     AudioSegment.ffmpeg = FFMPEG_EXECUTABLE
     print("[INFO] Using ffmpeg at:", FFMPEG_EXECUTABLE)
 else:
-    # Not fatal: pydub will still try whatever is in PATH,
-    # but decoding might fail with a clear error from audio_bytes_to_mel_image.
     print(
         "[WARN] FFmpeg executable not found automatically. "
-        "Pydub will rely on system PATH."
+        "Pydub will rely on whatever is in system PATH."
     )
 
 # ==========================================================
