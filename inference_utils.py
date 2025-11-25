@@ -23,24 +23,45 @@ IMG_SIZE = 224
 # index 0 -> Non-Parkinson, index 1 -> Parkinson
 CLASS_NAMES = ["Non-Parkinson", "Parkinson"]
 
-# ====== FFmpeg bundled with backend (no PATH needed) ======
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-FFMPEG_PATH = os.path.join(BASE_DIR, "ffmpeg", "ffmpeg.exe")
-FFPROBE_PATH = os.path.join(BASE_DIR, "ffmpeg", "ffprobe.exe")
+# ==========================================================
+# FFmpeg CONFIG (Render uses Linux, NOT Windows .exe)
+# ==========================================================
 
-# Check they exist and configure pydub
-if not os.path.exists(FFMPEG_PATH) or not os.path.exists(FFPROBE_PATH):
-    # This will show clearly in the logs instead of WinError 2
-    print("[ERROR] FFmpeg not found at:")
-    print("  ", FFMPEG_PATH)
-    print("  ", FFMPEG_PATH)
-    print("[HINT] Put ffmpeg.exe and ffprobe.exe in a folder called 'ffmpeg' "
-          "inside your backend directory (sixtyscan-ai-backend/ffmpeg/).")
+def _get_ffmpeg_path() -> str | None:
+    """
+    Decide which ffmpeg binary to use.
+
+    Priority:
+      1) FFMPEG_PATH env var (if exists and is a file)
+      2) /usr/bin/ffmpeg  (typical on Linux servers like Render)
+      3) None -> let pydub try system PATH
+    """
+    env_path = os.getenv("FFMPEG_PATH")
+    if env_path and os.path.exists(env_path):
+        return env_path
+
+    linux_default = "/usr/bin/ffmpeg"
+    if os.path.exists(linux_default):
+        return linux_default
+
+    return None
+
+
+FFMPEG_EXECUTABLE = _get_ffmpeg_path()
+
+if FFMPEG_EXECUTABLE:
+    AudioSegment.converter = FFMPEG_EXECUTABLE
+    # these attributes are used by some pydub internals; safe to set all
+    AudioSegment.ffmpeg = FFMPEG_EXECUTABLE
+    print("[INFO] Using ffmpeg at:", FFMPEG_EXECUTABLE)
 else:
-    AudioSegment.converter = FFMPEG_PATH
-    AudioSegment.ffmpeg = FFMPEG_PATH
-    AudioSegment.ffprobe = FFPROBE_PATH
-    print("[INFO] Using bundled FFmpeg:", FFMPEG_PATH)
+    # Not fatal: pydub will still try whatever is in PATH,
+    # but decoding might fail with a clear error from audio_bytes_to_mel_image.
+    print(
+        "[WARN] FFmpeg executable not found automatically. "
+        "Pydub will rely on system PATH."
+    )
+
 # ==========================================================
 
 
@@ -50,21 +71,11 @@ def audio_bytes_to_mel_image(audio_bytes: bytes) -> Image.Image:
     Convert to WAV using pydub + ffmpeg.
     Then produce a mel spectrogram as a PIL Image.
     """
-    # Extra safety: if ffmpeg is missing, fail with a clear message
-    if not os.path.exists(FFMPEG_PATH) or not os.path.exists(FFPROBE_PATH):
-        raise RuntimeError(
-            "FFmpeg executables not found.\n"
-            "Expected at:\n"
-            f"  {FFMPEG_PATH}\n"
-            f"  {FFPROBE_PATH}\n"
-            "Make sure ffmpeg.exe and ffprobe.exe are inside the 'ffmpeg' "
-            "folder in your backend directory."
-        )
-
     # 1) decode audio bytes with pydub (FFmpeg under the hood)
     try:
         audio = AudioSegment.from_file(io.BytesIO(audio_bytes))
     except Exception as e:
+        # This is where ffmpeg problems will show up clearly
         raise ValueError(f"Could not decode audio: {e}")
 
     # 2) export to clean WAV in-memory
